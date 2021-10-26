@@ -10,7 +10,7 @@ psycopg2==2.8.6
 python-crontab
 moto==2.2.1
 PyCryptodome
-uwsgi
 djangorestframework-datatables==0.6.0
 django-filter==21.1
+uwsgi==2.0.20
 django-pglocks
