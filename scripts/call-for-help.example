@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# A hook for Pygmy to call when it has pooped the bed and needs help.
+# For example, if it fails to restart a replica after trying to resize it,
+# somebody should probably get alerted.
+
+# If this doesn't work for your environment, simply exit 0.
+
+hostname="$1"
+details="$2"
+extra_details="$3"
+data='{
+  "payload": {
+    "summary": "'${details}' '${hostname}'",
+    "timestamp": "'$(date +%Y-%m-%dT%H:%M:%S%z)'",
+    "severity": "critical",
+    "source": "'${hostname}'",
+    "custom_details": "'${extra_details}'"
+  },
+  "routing_key": "iamasecretshortandstout",
+  "event_action": "trigger",
+  "client": "Pygmy"
+}'
+
+
+curl --silent --request POST \
+  --url https://events.pagerduty.com/v2/enqueue \
+  --header 'Content-Type: application/json' \
+  --data "${data}"

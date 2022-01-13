@@ -5,6 +5,8 @@ from engine.postgres_wrapper import PostgresData
 from django.conf import settings
 from engine.singleton import Singleton
 from webapp.models import Settings as SettingsModal
+import os
+import subprocess
 import logging
 logger = logging.getLogger(__name__)
 
@@ -113,7 +115,12 @@ class EC2Service(AWSServices, metaclass=Singleton):
         self.ec2_client.stop_instances(InstanceIds=[ec2_instance_id])
         logger.debug(f"waiting for {ec2_instance_id} to stop")
         waiter = self.ec2_client.get_waiter('instance_stopped')
-        waiter.wait(InstanceIds=[ec2_instance_id])
+        try:
+            waiter.wait(InstanceIds=[ec2_instance_id])
+        except Exception as e:
+            logger.error(f"Failed to stop instance because {e}")
+            raise Exception("Failed to stop instance for scaling")
+            return False
 
         logger.debug(f"{ec2_instance_id} has stopped")
 
@@ -125,7 +132,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
 
         # Record the new instance size.
         # Not _technically_ necessary, as it will refresh on the next run anyway,
-        # but if anybody looks at the db in the meantime, it know it no longer represents reality.
+        # but if anybody looks at the db in the meantime, it wouldn't otherwise represent reality.
         try:
             logger.debug(f"Recording new instance size of {new_instance_type}.")
             resizedNode = Ec2DbInfo.objects.get(instance_id=ec2_instance_id)
@@ -134,9 +141,47 @@ class EC2Service(AWSServices, metaclass=Singleton):
         except Exception as e:
             logger.warning(f"Failed to record new instance size, so we'll just keep going and pick it up when the next run starts.")
 
-        # Start the instance
-        self.start_instance(ec2_instance_id)
+        # Try to start the instance
+        try:
+            self.start_instance(ec2_instance_id)
+        except Exception as e:
+            logger.error(f"Failed to restart instance after resize because {e}")
+            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please restart replica, and make sure CNAMEs are appropriate after streaming has caught up")
+            raise Exception("Failed to restart instance after scaling")
+            return False
+
+        logger.debug(f"waiting for {ec2_instance_id} to restart")
+        waiter = self.ec2_client.get_waiter('instance_running')
+        try:
+            waiter.wait(InstanceIds=[ec2_instance_id])
+        except Exception as e:
+            logger.error(f"Failed to restart instance quick enough because {e}")
+            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please restart replica, and make sure CNAMEs are appropriate after streaming has caught up")
+            raise Exception("Failed to restart instance after scaling quickly enough")
+            return False
+
         return True
+
+    def page_for_help(self, instance, details, extra_info):
+        """
+        Call for a human to step in
+        """
+        script_path = os.path.join(settings.BASE_DIR, "scripts", "call-for-help.sh")
+
+        try:
+            logger.info(f"Calling for help regarding {instance} because ({details})")
+            test = subprocess.check_output([script_path, instance, details, extra_info])
+            logger.debug(f"running {script_path} {instance} {details} {extra_info} succeeded")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"running {script_path} {instance} {details} {extra_info} returned: {e.returncode} ({e.output})")
+            raise Exception("Call for help failed")
+        except Exception as e:
+            if hasattr(e, 'message'):
+                message = e.message
+            else:
+                message = e
+            logger.error(f"running {script_path} {instance} {details} {extra_info} returned generic error: {message}")
+            raise Exception("Call for help failed")
 
     def get_instances(self, extra_filters=None, update_sync_time=True):
         all_instances = dict()

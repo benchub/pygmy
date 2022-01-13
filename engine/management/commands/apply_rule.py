@@ -33,9 +33,9 @@ class Command(BaseCommand):
         helper = None
         msg = None
         try:
-            logger.info(f"Running rule {rid} ({rule_db.name})")
             try:
                 rule_db = Rules.objects.select_for_update(skip_locked=True).get(id=rid)
+                logger.info(f"Running rule {rid} ({rule_db.name})")
             except Exception as e:
                 # The rule might not exist, or might be merely locked.
                 # If this get fails it's because it doesn't exist for real, and we can let our normal exception handling below have its way.
