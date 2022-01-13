@@ -141,11 +141,18 @@ class EC2Service(AWSServices, metaclass=Singleton):
         except Exception as e:
             logger.warning(f"Failed to record new instance size, so we'll just keep going and pick it up when the next run starts.")
 
-        # Try to start the instance
-        try:
-            self.start_instance(ec2_instance_id)
-        except Exception as e:
-            logger.error(f"Failed to restart instance after resize because {e}")
+        # Try to start the instance.
+        # Thanks to the eventual consistency of EC2, this might (transiently) fail, so retry a few times before giving up.
+        restarted=False
+        for t in range(1,3):
+            try:
+                self.start_instance(ec2_instance_id)
+                restarted=True
+                break
+            except Exception as e:
+                logger.error(f"Failed to restart instance after resize because {e}. Will retry {3-t} more times")
+
+        if not restarted:
             self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please restart replica, and make sure CNAMEs are appropriate after streaming has caught up")
             raise Exception("Failed to restart instance after scaling")
             return False
