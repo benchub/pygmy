@@ -1,4 +1,5 @@
 import botocore
+import time
 from engine.aws.aws_services import AWSServices
 from engine.models import AllEc2InstancesData, EC2, Ec2DbInfo, ClusterInfo, DbCredentials, AllEc2InstanceTypes
 from engine.postgres_wrapper import PostgresData
@@ -19,7 +20,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
         super(EC2Service, self).__init__()
 
     def __repr__(self):
-        return "<EC2Service type:%s>" % (self.SERVICE_TYPE)
+        return "<EC2Service type: %s>" % (self.SERVICE_TYPE)
 
     def create_connection(self, db, expect_errors=False):
         host = db.instance_object.privateIpAddress
@@ -28,7 +29,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
             credentials = DbCredentials.objects.get(name="ec2")
             username = credentials.user_name
             password = credentials.password
-        except Exception as e:
+        except Exception:
             logger.debug("Failed to find ec2 credentials, so we're going to hope libpq finds a way to auth")
             username = None
             password = None
@@ -138,19 +139,20 @@ class EC2Service(AWSServices, metaclass=Singleton):
             resizedNode = Ec2DbInfo.objects.get(instance_id=ec2_instance_id)
             resizedNode.last_instance_type = new_instance_type
             resizedNode.save()
-        except Exception as e:
+        except Exception:
             logger.warning(f"Failed to record new instance size, so we'll just keep going and pick it up when the next run starts.")
 
         # Try to start the instance.
         # Thanks to the eventual consistency of EC2, this might (transiently) fail, so retry a few times before giving up.
-        restarted=False
-        for t in range(1,3):
+        restarted = False
+        for t in range(1, 3):
             try:
                 self.start_instance(ec2_instance_id)
-                restarted=True
+                restarted = True
                 break
             except Exception as e:
                 logger.error(f"Failed to restart instance after resize because {e}. Will retry {3-t} more times")
+                time.sleep(1)
 
         if not restarted:
             self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please restart replica, and make sure CNAMEs are appropriate after streaming has caught up")
@@ -177,7 +179,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
 
         try:
             logger.info(f"Calling for help regarding {instance} because ({details})")
-            test = subprocess.check_output([script_path, instance, details, extra_info])
+            subprocess.run([script_path, instance, details, extra_info], check=True)
             logger.debug(f"running {script_path} {instance} {details} {extra_info} succeeded")
         except subprocess.CalledProcessError as e:
             logger.error(f"running {script_path} {instance} {details} {extra_info} returned: {e.returncode} ({e.output})")
@@ -353,7 +355,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
             if AllEc2InstanceTypes.objects.count() != len(all_instances):
                 for instance in all_instances:
                     try:
-                        inst = AllEc2InstanceTypes.objects.get(instance_type=instance["InstanceType"])
+                        AllEc2InstanceTypes.objects.get(instance_type=instance["InstanceType"])
                     except AllEc2InstanceTypes.DoesNotExist:
                         aeit = AllEc2InstanceTypes()
                         aeit.save_instance_types(instance)
@@ -365,5 +367,5 @@ class EC2Service(AWSServices, metaclass=Singleton):
         try:
             Ec2DbInfo.objects.filter(types="EC2").delete()
             AllEc2InstancesData.objects.all().delete()
-        except Exception as e:
+        except Exception:
             pass

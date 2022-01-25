@@ -20,7 +20,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         logger.debug(os.environ)
-        msg = ""
         for rid in kwargs['rule_id']:
             self.try_rule(rid)
 
@@ -36,10 +35,10 @@ class Command(BaseCommand):
             try:
                 rule_db = Rules.objects.select_for_update(skip_locked=True).get(id=rid)
                 logger.info(f"Running rule {rid} ({rule_db.name})")
-            except Exception as e:
+            except Exception:
                 # The rule might not exist, or might be merely locked.
                 # If this get fails it's because it doesn't exist for real, and we can let our normal exception handling below have its way.
-                unlocked_rule_db = Rules.objects.get(id=rid)
+                Rules.objects.get(id=rid)
                 # If we get here, though, we know it's merely locked and currently being worked on.
                 # Sadly we don't know much other than that, because nothing has been committed yet
                 logger.error(f"Refusing to run locked rule because it is currently being worked")
