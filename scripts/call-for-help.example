@@ -14,7 +14,7 @@ data='{
     "summary": "'${details}' '${hostname}'",
     "timestamp": "'$(date +%Y-%m-%dT%H:%M:%S%z)'",
     "severity": "critical",
-    "source": "'${hostname}'",
+    "source": "'$(hostname -f)'",
     "custom_details": "'${extra_details}'"
   },
   "routing_key": "iamasecretshortandstout",
