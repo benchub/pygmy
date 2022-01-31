@@ -2,11 +2,13 @@ from django.utils import timezone
 from django.db import transaction
 from django.core.management import BaseCommand
 from django.contrib.humanize.templatetags.humanize import ordinal
+from django.conf import settings
 from engine.rules.logger_utils import ActionLogger
 from engine.rules.rules_helper import RuleHelper
 from engine.models import Rules, ActionLogs, ClusterInfo, Ec2DbInfo, AllEc2InstancesData
 from engine.aws.ec_wrapper import EC2Service
 from engine.rules.cronutils import CronUtil
+from pathlib import Path
 import os
 import logging
 
@@ -44,6 +46,9 @@ class Command(BaseCommand):
                 logger.error(f"Refusing to run locked rule because it is currently being worked")
                 too_many_cooks = True
                 return
+
+            # Mark this cluster as one we are currently processing
+            Path(os.path.join(settings.BASE_DIR, "processing", str(rule_db.cluster_id)), exist_ok=True).touch()
 
             if rule_db.working_pid is not None:
                 # Probably started a while ago, so try to be helpful and report the delta in minutes, not seconds
@@ -202,6 +207,10 @@ class Command(BaseCommand):
                 rule_db.save()
                 if msg is not None:
                     self.add_log_entry(rule_db, msg)
+
+                # Finally, remove this rule as one we are currently working on
+                Path(os.path.join(settings.BASE_DIR, "processing", str(rule_db.cluster_id)), missing_ok=True).unlink()
+
 
     def add_log_entry(self, rule, msg, extra_info=None):
         # Add Log entry

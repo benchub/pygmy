@@ -2,7 +2,7 @@ from django.urls import path, re_path
 from django.views.generic import TemplateView
 from webapp.view.actions import ActionsView
 from webapp.view.apis import ClusterAPIView, ExceptionApiView, ExceptionEditApiView, ListInstances, CreateDNSEntry, \
-    CreateClusterManagement, EditClusterManagement, ToggleCluster
+    CreateClusterManagement, EditClusterManagement, ToggleCluster, InProgress
 from webapp.view.exceptions import ExceptionsView, ExceptionsCreateView, ExceptionsEditView
 from webapp.view.logs import LogsView, LogsApiView
 from webapp.view.rules import CreateRulesView, RulesView, EditRuleView
@@ -41,6 +41,7 @@ urlpatterns = [
     path("v1/api/exceptions", ExceptionApiView.as_view(), name="create_rule_api"),
     path("v1/api/exceptions/<int:id>", ExceptionEditApiView.as_view(), name="create_rule_api"),
     path("v1/api/instances", ListInstances.as_view(), name="create_rule_api"),
+    path("v1/api/progressing/<str:name>", InProgress.as_view(), name="in_progress"),
     path("v1/api/dns", CreateDNSEntry.as_view(), name="create_rule_api"),
     path("v1/api/cluster/management", CreateClusterManagement.as_view(), name="create_rule_api"),
     path("v1/api/cluster/management/<int:pk>", EditClusterManagement.as_view(), name="edit_cluster_management"),

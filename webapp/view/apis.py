@@ -1,4 +1,6 @@
 import logging
+import os
+from pathlib import Path
 from rest_framework import generics
 from rest_framework.parsers import JSONParser
 from rest_framework.views import APIView
@@ -13,6 +15,7 @@ from rest_framework.generics import ListAPIView, CreateAPIView, RetrieveUpdateDe
 from distutils.util import strtobool
 from django.db import DatabaseError
 from django.db import transaction
+from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
@@ -271,4 +274,31 @@ class ToggleCluster(UpdateAPIView):
         except Exception as e:
             logger.error(f"Generic exception pausing or resuming cluster: {e}")
             result = {"Error": "missing parameter", "data": request.POST}
+        return Response(result)
+
+class InProgress(APIView):
+    """
+    Report on which clusters are in progress, or if a specific one is
+    """
+    authentication_classes = []
+    permission_classes = []
+    parser_classes = [JSONParser]
+    queryset = ClusterInfo.objects.all()
+
+    @swagger_auto_schema(operation_summary="Check If A Cluster Is Being Worked", tags=["Cluster"], responses={200: '{"success": True}'})
+    def get(self, request, name):
+        try:
+            cluster = ClusterInfo.objects.get(name=name)
+            # see if we have a processing file marker for cluster.id
+            if Path(os.path.join(settings.BASE_DIR, "processing", str(cluster.id))).is_file():
+                result = {"True": "Cluster is currently being processed"}
+            else:
+                result = {"False": "Cluster is not being processed"}
+        except ClusterInfo.DoesNotExist:
+            result = {"Error": "Cluster not found"}
+        except DatabaseError as e:
+            result = {"True": f"Cluster is being resized"}
+        except Exception as e:
+            logger.error(f"Generic exception checking if {name} is in progress: {e}")
+            result = {"Error": "Generic exception details recorded in log"}
         return Response(result)
