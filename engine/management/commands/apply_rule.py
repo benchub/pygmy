@@ -211,7 +211,6 @@ class Command(BaseCommand):
                 # Finally, remove this rule as one we are currently working on
                 Path(os.path.join(settings.BASE_DIR, "processing", str(rule_db.cluster_id)), missing_ok=True).unlink()
 
-
     def add_log_entry(self, rule, msg, extra_info=None):
         # Add Log entry
         log = ActionLogs()

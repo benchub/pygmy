@@ -11,7 +11,7 @@ from engine.rules.cronutils import CronUtil
 from drf_yasg2.utils import swagger_auto_schema
 from webapp.serializers import RuleSerializer, ExceptionDataSerializer, ClusterSerializer, RuleCreateSerializer, \
     ExceptionCreateSerializer, Ec2DbInfoSerializer, DNSDataSerializer, ClusterManagementSerializer, ToggleClusterSerializer
-from rest_framework.generics import ListAPIView, CreateAPIView, RetrieveUpdateDestroyAPIView, ListCreateAPIView, UpdateAPIView
+from rest_framework.generics import ListAPIView, RetrieveUpdateDestroyAPIView, ListCreateAPIView, UpdateAPIView
 from distutils.util import strtobool
 from django.db import DatabaseError
 from django.db import transaction
@@ -38,7 +38,7 @@ class CreateRuleAPIView(APIView):
             name = request.data.get("name", None)
             typeTime = request.data.get("typeTime", "daily")
             cluster_id = request.data.get("cluster_id", None)
-            cluster_obj = ClusterInfo.objects.get(id=cluster_id)
+            ClusterInfo.objects.get(id=cluster_id)
             action = request.data.get("action", None)
             if name and cluster_id and action and typeTime:
                 # Scale down Rule
@@ -249,7 +249,7 @@ class ToggleCluster(UpdateAPIView):
     def put(self, request, name):
         try:
             enable_cluster = bool(strtobool(request.data.get("enabled", None)))
-        except Exception as e:
+        except Exception:
             result = {"Error": f"Invalid boolean used for enabled field: ({request.data.get('enabled', None)})"}
             return Response(result)
 
@@ -269,12 +269,13 @@ class ToggleCluster(UpdateAPIView):
                 result = {"Success": "Cluster enabled"}
         except ClusterInfo.DoesNotExist:
             result = {"Error": "Cluster not found"}
-        except DatabaseError as e:
+        except DatabaseError:
             result = {"Error": f"Cluster is being resized"}
         except Exception as e:
             logger.error(f"Generic exception pausing or resuming cluster: {e}")
             result = {"Error": "missing parameter", "data": request.POST}
         return Response(result)
+
 
 class InProgress(APIView):
     """
@@ -296,7 +297,7 @@ class InProgress(APIView):
                 result = {"False": "Cluster is not being processed"}
         except ClusterInfo.DoesNotExist:
             result = {"Error": "Cluster not found"}
-        except DatabaseError as e:
+        except DatabaseError:
             result = {"True": f"Cluster is being resized"}
         except Exception as e:
             logger.error(f"Generic exception checking if {name} is in progress: {e}")
