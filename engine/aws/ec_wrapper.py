@@ -192,7 +192,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
             logger.error(f"running {script_path} {instance} {details} {extra_info} returned generic error: {message}")
             raise Exception("Call for help failed")
 
-    def get_instances(self, extra_filters=None, update_sync_time=True):
+    def get_instances(self, extra_filters=None, update_sync_time=True, force_cluster_id=None):
         all_instances = dict()
         TAG_KEY_NAME = SettingsModal.objects.get(name="EC2_INSTANCE_POSTGRES_TAG_KEY_NAME")
         TAG_KEY_VALUE = SettingsModal.objects.get(name="EC2_INSTANCE_POSTGRES_TAG_KEY_VALUE")
@@ -255,14 +255,13 @@ class EC2Service(AWSServices, metaclass=Singleton):
 
         # Update Cluster Info for the instances we've selected
         for instance in AllEc2InstancesData.objects.filter(instanceId__in=all_instances.keys()):
-            self.check_cluster_info(instance)
+            self.check_cluster_info(instance, force_cluster_id)
         return all_instances
 
-    def check_cluster_info(self, instance):
+    def check_cluster_info(self, instance, force_cluster_id):
         logger.debug(f"Checking cluster info for instance {instance.instanceId} ({instance.instanceType})")
         try:
             db = Ec2DbInfo.objects.get(instance_id=instance.instanceId)
-            logger.debug(f"Found Ec2DbInfo record with cluster_id {db.cluster_id}")
         except Ec2DbInfo.DoesNotExist:
             logger.info(f"Instance {instance.instanceId} appears new to us")
             # Because we don't have this yet, go ahead and create it. In the unlikely event that it fails,
@@ -289,6 +288,9 @@ class EC2Service(AWSServices, metaclass=Singleton):
                 self.update_replica_cluster_info(instance.privateIpAddress, replicas)
             else:
                 logger.debug(f"Instance {instance.instanceId} isn't a primary node")
+                if force_cluster_id is not None:
+                    logger.debug(f"Forcing cluster to be {force_cluster_id}")
+                    db.cluster_id = force_cluster_id
         except Exception as e:
             logger.error(f"Ruh oh, looks like we found an exception checking out {instance.instanceId}: {e}")
             db.isPrimary = False

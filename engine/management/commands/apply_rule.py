@@ -125,6 +125,10 @@ class Command(BaseCommand):
                     'Values': [tag_environment]
                 },
                 {
+                    'Name': f"tag:{settings.EC2_INSTANCE_ROLE_TAG_KEY_NAME}",
+                    'Values': settings.EC2_INSTANCE_ROLE_TAG_VALUES
+                },
+                {
                     'Name': 'tag:Cluster',
                     'Values': [tag_cluster]
                 }]
@@ -133,7 +137,7 @@ class Command(BaseCommand):
             try:
                 logger.debug("Starting refresh of EC2 instances")
                 ec2_service = EC2Service()
-                new_instances = ec2_service.get_instances(extra_filters=tag_filters, update_sync_time=False)
+                new_instances = ec2_service.get_instances(extra_filters=tag_filters, update_sync_time=False, force_cluster_id=rule_db.cluster_id)
                 logger.debug(f"Our new instances are {new_instances}")
                 for node in nodes:
                     if node.instance_id in new_instances:
@@ -209,7 +213,10 @@ class Command(BaseCommand):
                     self.add_log_entry(rule_db, msg)
 
                 # Finally, remove this rule as one we are currently working on
-                Path(os.path.join(settings.BASE_DIR, "processing", str(rule_db.cluster_id)), missing_ok=True).unlink()
+                try:
+                    Path(os.path.join(settings.BASE_DIR, "processing", str(rule_db.cluster_id))).unlink()
+                except Exception:
+                    pass
 
     def add_log_entry(self, rule, msg, extra_info=None):
         # Add Log entry

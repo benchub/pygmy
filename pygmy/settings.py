@@ -204,6 +204,9 @@ EC2_INSTANCE_CLUSTER_TAG_KEY_NAME = "Cluster"
 # When inspecting role-based cluster topology, use this tag name to determine the role a DB node has
 EC2_INSTANCE_ROLE_TAG_KEY_NAME = "PGRole"
 
+# When looking for cluster nodes, only include these topology values
+EC2_INSTANCE_ROLE_TAG_VALUES = ['Master','Slave','Backup']
+
 # If you wish to restrict the instances Pygmy will find to a subset of VPCs available, enumerate them with EC2_INSTANCE_VPC_MENU
 # Leaving the array empty will let Pygmy search all VPCs it would normally find.
 EC2_INSTANCE_VPC_MENU = []
