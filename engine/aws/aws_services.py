@@ -1,5 +1,7 @@
 import time
 import boto3
+from botocore.config import Config
+
 import datetime
 from django.conf import settings
 from django.utils import timezone
@@ -29,15 +31,17 @@ class AWSServices:
             sts = self.aws_session.client('sts')
             sts.get_caller_identity()
             logger.info("Successfully create AWS Session using DB Credentials")
-        except Exception as e:
+        except Exception:
             try:
                 self.aws_session = boto3.Session()
                 logger.debug("Creating AWS Session using default/env credentials")
             except Exception as e:
                 logger.error("Failed to create AWS Session using DB Credentials")
                 raise e
-        self.ec2_client = self.aws_session.client('ec2', region_name=settings.DEFAULT_REGION)
-        self.rds_client = self.aws_session.client('rds', region_name=settings.DEFAULT_REGION)
+        # We're going to want to be a bit more resiliant to AWS errors
+        config = Config(retries={'max_attempts': 23, 'mode': 'standard'})
+        self.ec2_client = self.aws_session.client('ec2', region_name=settings.DEFAULT_REGION, config=config)
+        self.rds_client = self.aws_session.client('rds', region_name=settings.DEFAULT_REGION, config=config)
         for region in self.ec2_client.describe_regions()["Regions"]:
             region_name = region["RegionName"]
             self.ec2_client_region_dict[region_name] = self.aws_session.client('ec2', region_name=region_name)
