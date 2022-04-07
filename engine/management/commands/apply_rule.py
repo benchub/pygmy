@@ -110,7 +110,17 @@ class Command(BaseCommand):
                     aborted = True
                     return
 
-            # Now that we have all the rows locked that we're going to need, update our instances related to the cluster and their types
+            # Now that we have all the rows locked that we're going to need, make sure we should continue.
+            # If this is a SCALE_UP rule *and* if the same cluster_id has a SCALE_DOWN rule with a false status, that
+            # means we are still trying to scale down, and it doesn't make sense to try to scale up.
+            if rule_db.action == "SCALE_UP":
+                failed_scale_down_rules = Rules.objects.filter(cluster_id=rule_db.cluster_id, action="SCALE_DOWN", status=False).count()
+                if failed_scale_down_rules > 0:
+                    logger.error(f"Refusing to run scaleup because it appears we never completed {failed_scale_down_rules} scaledown rules")
+                    aborted = True
+                    return
+
+            # Now that we know we should proceed, update our instances related to the cluster and their types
             tag_project = cluster.name.split('-')[0].capitalize()
             tag_environment = cluster.name.split('-')[1].capitalize()
             tag_cluster = cluster.name.split('-')[2]  # yay snowflakes! We don't want this capitalized.
