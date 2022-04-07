@@ -155,7 +155,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
                 time.sleep(1)
 
         if not restarted:
-            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please restart replica, and make sure CNAMEs are appropriate after streaming has caught up")
+            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please make sure all replicas are running at an appropriate size, and that CNAMEs are appropriate after streaming has caught up")
             raise Exception("Failed to restart instance after scaling")
             return False
 
@@ -165,7 +165,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
             waiter.wait(InstanceIds=[ec2_instance_id])
         except Exception as e:
             logger.error(f"Failed to restart instance quick enough because {e}")
-            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please restart replica, and make sure CNAMEs are appropriate after streaming has caught up")
+            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please make sure all replicas are running at an appropriate size, and that CNAMEs are appropriate after streaming has caught up")
             raise Exception("Failed to restart instance after scaling quickly enough")
             return False
 
@@ -175,21 +175,32 @@ class EC2Service(AWSServices, metaclass=Singleton):
         """
         Call for a human to step in
         """
+        # Attempt to get a useful region and host name for our page recipient
+        try:
+            instanceData = AllEc2InstancesData.objects.get(instanceId=instance)
+            host = instanceData.name
+            region = instanceData.region
+        except Exception:
+            host = "not found"
+            region = "not found"
+
+        full_details = f"Host: {host}, region: {region}. {extra_info}"
+
         script_path = os.path.join(settings.BASE_DIR, "scripts", "call-for-help.sh")
 
         try:
             logger.info(f"Calling for help regarding {instance} because ({details})")
-            subprocess.run([script_path, instance, details, extra_info], check=True)
-            logger.debug(f"running {script_path} {instance} {details} {extra_info} succeeded")
+            subprocess.run([script_path, instance, details, full_details], check=True)
+            logger.debug(f"running {script_path} {instance} {details} {full_details} succeeded")
         except subprocess.CalledProcessError as e:
-            logger.error(f"running {script_path} {instance} {details} {extra_info} returned: {e.returncode} ({e.output})")
+            logger.error(f"running {script_path} {instance} {details} {full_details} returned: {e.returncode} ({e.output})")
             raise Exception("Call for help failed")
         except Exception as e:
             if hasattr(e, 'message'):
                 message = e.message
             else:
                 message = e
-            logger.error(f"running {script_path} {instance} {details} {extra_info} returned generic error: {message}")
+            logger.error(f"running {script_path} {instance} {details} {full_details} returned generic error: {message}")
             raise Exception("Call for help failed")
 
     def get_instances(self, extra_filters=None, update_sync_time=True, force_cluster_id=None):
