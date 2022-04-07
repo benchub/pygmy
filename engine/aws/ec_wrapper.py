@@ -12,6 +12,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class NeedFallbackInstanceError(Exception):
+    pass
+
+
 class EC2Service(AWSServices, metaclass=Singleton):
     ec2_client_region_dict = dict()
     SERVICE_TYPE = EC2
@@ -91,16 +95,19 @@ class EC2Service(AWSServices, metaclass=Singleton):
         logger.info(f"scaling instance {ec2_instance_id} from {previous_instance_type} to {new_instance_type}")
         try:
             self.__scale_instance(ec2_instance_id, new_instance_type)
-        except botocore.exceptions.WaiterError:
-            logger.debug(f"Oh noes! It's botocore error exception handler time!")
-            # Fall backing instances
+        except (botocore.exceptions.WaiterError, NeedFallbackInstanceError):
+            logger.debug(f"Oh noes! It's fallback instance time!")
             for fallback_instance in fallback_instances:
                 try:
-                    logger.info("Setting fallback instance type {}.", fallback_instance)
+                    logger.info(f"Setting fallback instance type {fallback_instance}.")
                     self.__scale_instance(ec2_instance_id, fallback_instance)
                     return True
-                except botocore.exceptions.WaiterError:
-                    logger.error("Failed to set fallback instance type {}.", fallback_instance)
+                except Exception as e:
+                    logger.error(f"Failed to set fallback instance type {fallback_instance} because {str(e)}.")
+            logger.error(f"No more fallback instance types to try! Reverting to type {previous_instance_type}")
+            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please make sure all replicas are running at an appropriate size, and that CNAMEs are appropriate after streaming has caught up")
+            self.__scale_instance(ec2_instance_id, previous_instance_type)
+            return False
         except Exception as e:
             # Change the instance type to previous
             logger.error(f"failed in scaling ec2 instance because {str(e)}; reverting instance type")
@@ -155,8 +162,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
                 time.sleep(1)
 
         if not restarted:
-            self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please make sure all replicas are running at an appropriate size, and that CNAMEs are appropriate after streaming has caught up")
-            raise Exception("Failed to restart instance after scaling")
+            raise NeedFallbackInstanceError("Failed to restart instance after scaling")
             return False
 
         logger.debug(f"waiting for {ec2_instance_id} to restart")
