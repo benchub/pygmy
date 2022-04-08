@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from django.db.models import F
-from engine.models import EC2, SCALE_DOWN, SCALE_UP, Ec2DbInfo, AllRdsInstanceTypes, AllEc2InstanceTypes
+from engine.models import EC2, Ec2DbInfo, AllRdsInstanceTypes, AllEc2InstanceTypes
 from engine.aws.aws_utils import AWSUtil
 from engine.rules.cronutils import CronUtil
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class DbHelper:
                 logging.debug("Checking if db is alive")
                 is_alive = self.new_db_conn(expect_errors=True).is_alive(expect_errors=True)
                 time.sleep(5)
-            except Exception as e:
+            except Exception:
                 logger.info("Replica not yet accepting connections")
                 time.sleep(5)
 
@@ -137,20 +137,26 @@ class DbHelper:
     def update_instance_type(self, instance_type, rule_id, fallback_instances=[]):
         if instance_type == self.instance.instanceType:
             logger.info(f"Not going to change instance type because {self.instance.instanceType} == {instance_type}")
-            return
+            # even though we didn't actually make a change, we're in the same state as if we had, so return True
+            return True
 
         logger.debug(f"changing instance {self.instance.instanceId} from {self.instance.instanceType} to {instance_type}")
 
         # Mark our intent to resize an cluster member
         CronUtil.create_cron_intent(rule_id, self.instance.instanceId)
 
-        self.aws.scale_instance(self.instance, instance_type, fallback_instances)
-
-        # Remove our intent, now that it is over.
-        # (The rule might still be in progress, but if we were to restart at this moment it should be close enough to idempotent.)
-        CronUtil.delete_cron_intent(rule_id)
+        if self.aws.scale_instance(self.instance, instance_type, fallback_instances):
+            # Remove our intent, now that it is over.
+            # (The rule might still be in progress, but if we were to restart at this moment it should be close enough to idempotent.)
+            CronUtil.delete_cron_intent(rule_id)
+        else:
+            # Scaling the instance failed
+            # We tried as hard as we could, so there's nothing more to do, but we need to let our callers know
+            logger.warning(f"Scaling {self.instance.instanceId} failed; sorry, there was nothing more to be done.")
+            return False
 
         logger.debug(f"Scaling {self.instance.instanceId} complete.")
+        return True
 
     def get_endpoint_address(self):
         return self.table.get_endpoint_address(self.instance)

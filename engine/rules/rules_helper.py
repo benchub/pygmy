@@ -179,6 +179,7 @@ class RuleHelper:
         db_avg_load = dict()
         db_successes = dict()
         all_good = False
+        incomplete = False
         # If we're scaling up because of load, then that same load calculation should push all replicas to scale up, and don't have to check each one.
         forced_scaleup = False
         if self.action == SCALE_UP:
@@ -187,7 +188,7 @@ class RuleHelper:
                 primary_helper.check_average_load(self.rule_json, self.any_conditions)
                 logger.info("Scaling up entire cluster because load is too high")
                 forced_scaleup = True
-            except Exception as e:
+            except Exception:
                 logger.debug("Not enough load to scale up all replicas; checking each for replication lag and connection counts")
         try:
             for db in self.secondary_dbs:
@@ -203,7 +204,7 @@ class RuleHelper:
                     try:
                         helper.check_replication_lag(self.rule_json, self.any_conditions)
                         db_successes[db.id] += 1
-                    except Exception as e:
+                    except Exception:
                         if self.any_conditions:
                             logger.debug(f"{db.instance_id} failed a replication lag check but we are using OR logic ({db_successes[db.id]} other successes)")
                         else:
@@ -215,7 +216,7 @@ class RuleHelper:
                         else:
                             helper.check_connections(self.rule_json, self.any_conditions)
                         db_successes[db.id] += 1
-                    except Exception as e:
+                    except Exception:
                         if self.any_conditions:
                             logger.debug(f"{db.instance_id} failed a connection count check but we are using OR logic ({db_successes[db.id]} other successes)")
                         else:
@@ -272,8 +273,11 @@ class RuleHelper:
                             # so that we can get load off of our replica(s) before resizing.
                             self.update_dns_entries(db_instances[id])
                             self.run_pre_resize_script(db_instances[id].instance.instanceId)
-                            db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances)
-                            aggregated_avg_load += replica_avg_load
+                            if db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances):
+                                aggregated_avg_load += replica_avg_load
+                            else:
+                                logger.warning(f"Instance {db_instances[id].instance.instanceId} couldn't resize for downscaling")
+                                incomplete = True
 
                             # Because we're scaling down and have moved load off of this node,
                             # we don't need to wait for the client's sake that streaming has resumed before continuing.
@@ -281,21 +285,28 @@ class RuleHelper:
                             # we should wait to make sure the replication is working again before we run it.
                             db_instances[id].wait_till_replica_streaming()
                             self.run_post_streaming_script(db_instances[id].instance.instanceId)
+
                         else:
                             # If we are going to upsize, update our DNS entry after we upsize,
                             # so that we can make sure the upsized instance is ready to rock before it
                             # sees any new clients.
                             self.run_pre_resize_script(db_instances[id].instance.instanceId)
-                            db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances)
+                            if db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances):
+                                # We need to make sure streaming has resumed before we say we are ready for clients
+                                db_instances[id].wait_till_replica_streaming()
 
-                            # We need to make sure streaming has resumed before we say we are ready for clients
-                            db_instances[id].wait_till_replica_streaming()
+                                # Now that replication is working, we should be go to run the post-streaming script.
+                                self.run_post_streaming_script(db_instances[id].instance.instanceId)
 
-                            # Now that replication is working, we should be go to run the post-streaming script.
-                            self.run_post_streaming_script(db_instances[id].instance.instanceId)
-
-                            self.update_dns_entries(db_instances[id])
-                            aggregated_avg_load -= replica_avg_load
+                                self.update_dns_entries(db_instances[id])
+                                aggregated_avg_load -= replica_avg_load
+                            else:
+                                logger.warning(f"Instance {db_instances[id].instance.instanceId} couldn't resize for upscaling")
+                                incomplete = True
+                                # Even though we couldn't upsize - and therefore will not be modifying dns - we should still
+                                # make sure streaming is back and mthe post-streaming script is run to get monitoring re-enabled
+                                db_instances[id].wait_till_replica_streaming()
+                                self.run_post_streaming_script(db_instances[id].instance.instanceId)
 
                         changed_replicas += 1
                     except Exception as e:
@@ -304,13 +315,18 @@ class RuleHelper:
                 if changed_replicas == 0:
                     raise Exception("Failed to resize any replicas.")
             else:
-                logger.info(f"Managed cluster is {self._is_cluster_managed} and avg_load is {self.cluster_mgmt.avg_load}")
+                logger.info(f"Managed cluster flag is {self._is_cluster_managed} and avg_load is {self.cluster_mgmt.avg_load}")
                 for id, helper in db_instances.items():
                     helper.check_average_load(self.rule_json, self.any_conditions)
                     helper.check_connections(self.rule_json, self.any_conditions)
-                    helper.update_instance_type(self.new_instance_type, self.rule.id, self.fallback_instances)
-                    self.update_dns_entries(helper)
-            all_good = True
+                    if helper.update_instance_type(self.new_instance_type, self.rule.id, self.fallback_instances):
+                        self.update_dns_entries(helper)
+                    else:
+                        logger.warning(f"Not updating DNS for {helper.instance.instanceId} because resize failed")
+            if incomplete:
+                raise Exception("Failed to resize all instances")
+            else:
+                all_good = True
         except Exception as e:
             logger.error(f"#Rule {self.rule.id}: Failed to apply because {e}")
             raise e
@@ -323,9 +339,11 @@ class RuleHelper:
             for db in self.secondary_dbs:
                 db_helper = DbHelper(db)
                 db_helper.check_connections(self.rule_json, self.any_conditions)
-                db_helper.update_instance_type(db.last_instance_type, self.rule.id, self.fallback_instances)
-                self.update_dns_entries(db_helper)
-        except Exception as e:
+                if db_helper.update_instance_type(db.last_instance_type, self.rule.id, self.fallback_instances):
+                    self.update_dns_entries(db_helper)
+                else:
+                    logger.warning(f"Not updating DNS for {db_helper.instance.instanceId} because resize failed")
+        except Exception:
             logger.error("Reverse #Rule {}: Failed to apply", self.rule.id)
             CronUtil.set_retry_cron(self.rule, attempt)
 
@@ -407,7 +425,7 @@ class RuleHelper:
                 "AWS_ACCESS_KEY_ID": DB_CRED.user_name,
                 "AWS_SECRET_ACCESS_KEY": DB_CRED.password
             })
-        except Exception as e:
+        except Exception:
             env_var = dict()
 
         try:
@@ -437,7 +455,7 @@ class RuleHelper:
                 "AWS_ACCESS_KEY_ID": DB_CRED.user_name,
                 "AWS_SECRET_ACCESS_KEY": DB_CRED.password
             })
-        except Exception as e:
+        except Exception:
             env_var = dict()
 
         try:
@@ -467,7 +485,7 @@ class RuleHelper:
                 "AWS_ACCESS_KEY_ID": DB_CRED.user_name,
                 "AWS_SECRET_ACCESS_KEY": DB_CRED.password
             })
-        except Exception as e:
+        except Exception:
             env_var = dict()
 
         try:

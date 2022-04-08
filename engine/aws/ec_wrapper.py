@@ -114,6 +114,9 @@ class EC2Service(AWSServices, metaclass=Singleton):
             self.__scale_instance(ec2_instance_id, previous_instance_type)
             return False
 
+        # Looks like we made it to the end
+        return True
+
     def __scale_instance(self, ec2_instance_id, new_instance_type):
         """
            scale up and down the ec2 instances
