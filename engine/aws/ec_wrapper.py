@@ -86,7 +86,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
 
         return all_instance_types
 
-    def scale_instance(self, instance, new_instance_type, fallback_instances=None):
+    def scale_instance(self, instance, new_instance_type, fallback_instances=None, cluster_name_to_prognosticate=None):
         """
             scale up and down the ec2 instances
         """
@@ -94,33 +94,40 @@ class EC2Service(AWSServices, metaclass=Singleton):
         previous_instance_type = instance.instanceType
         logger.info(f"scaling instance {ec2_instance_id} from {previous_instance_type} to {new_instance_type}")
         try:
-            self.__scale_instance(ec2_instance_id, new_instance_type)
+            self.__scale_instance(ec2_instance_id, new_instance_type, cluster_name_to_prognosticate)
         except (botocore.exceptions.WaiterError, NeedFallbackInstanceError):
             logger.debug(f"Oh noes! It's fallback instance time!")
             for fallback_instance in fallback_instances:
                 try:
                     logger.info(f"Setting fallback instance type {fallback_instance}.")
-                    self.__scale_instance(ec2_instance_id, fallback_instance)
+                    self.__scale_instance(ec2_instance_id, fallback_instance, cluster_name_to_prognosticate)
                     return True
                 except Exception as e:
                     logger.error(f"Failed to set fallback instance type {fallback_instance} because {str(e)}.")
             logger.error(f"No more fallback instance types to try! Reverting to type {previous_instance_type}")
             self.page_for_help(ec2_instance_id, "Pygmy failed to restart replica after resize", "Please make sure all replicas are running at an appropriate size, and that CNAMEs are appropriate after streaming has caught up")
-            self.__scale_instance(ec2_instance_id, previous_instance_type)
+            self.__scale_instance(ec2_instance_id, previous_instance_type, cluster_name_to_prognosticate)
             return False
         except Exception as e:
             # Change the instance type to previous
             logger.error(f"failed in scaling ec2 instance because {str(e)}; reverting instance type")
-            self.__scale_instance(ec2_instance_id, previous_instance_type)
+            self.__scale_instance(ec2_instance_id, previous_instance_type, cluster_name_to_prognosticate)
             return False
 
         # Looks like we made it to the end
         return True
 
-    def __scale_instance(self, ec2_instance_id, new_instance_type):
+    def __scale_instance(self, ec2_instance_id, proposed_instance_type, cluster_name_to_prognosticate):
         """
            scale up and down the ec2 instances
        """
+        if cluster_name_to_prognosticate is not None:
+            # See if our proposed instance type matches our prognostication
+            new_instance_type = self.prognosticate(cluster_name_to_prognosticate, proposed_instance_type)
+        else:
+            # If we don't have a cluster name to prognosticate, just take what we're given.
+            new_instance_type = proposed_instance_type
+
         # stop the instance
         logger.info(f"stopping {ec2_instance_id}")
         self.ec2_client.stop_instances(InstanceIds=[ec2_instance_id])
@@ -211,6 +218,35 @@ class EC2Service(AWSServices, metaclass=Singleton):
                 message = e
             logger.error(f"running {script_path} {host} {details} {full_details} returned generic error: {message}")
             raise Exception("Call for help failed")
+
+    def prognosticate(self, cluster_name, proposed_instance_type):
+        """
+        See if our site logic trumps our configured logic
+        """
+        script_path = os.path.join(settings.BASE_DIR, "scripts", "downsize-prognostication.sh")
+
+        try:
+            logger.info(f"Prognosticating {cluster_name} against proposed type {proposed_instance_type}")
+            value = subprocess.check_output([script_path, cluster_name, proposed_instance_type])
+            if len(value) > 0:
+                logger.debug(f"running {script_path} {cluster_name} {proposed_instance_type} succeeded; actual size will be {value}")
+                return value
+            else:
+                logger.debug(f"running {script_path} {cluster_name} {proposed_instance_type} succeeded with no output?; actual size will be {proposed_instance_type}")
+                return proposed_instance_type
+        except subprocess.CalledProcessError as e:
+            logger.error(f"running {script_path} {cluster_name} {proposed_instance_type} returned: {e.returncode} ({e.output}); returning proposed_instance_type")
+            return proposed_instance_type
+        except Exception as e:
+            if hasattr(e, 'message'):
+                message = e.message
+            else:
+                message = e
+            logger.error(f"running {script_path} {cluster_name} {proposed_instance_type} returned generic error: {message}; returning proposed_instance_type")
+            return proposed_instance_type
+
+        logger.error(f"somehow got to the end of prognosticating without coming to a decision; returning proposed_instance_type")
+        return proposed_instance_type
 
     def get_instances(self, extra_filters=None, update_sync_time=True, force_cluster_id=None):
         all_instances = dict()
