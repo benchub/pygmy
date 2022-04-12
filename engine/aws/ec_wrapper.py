@@ -190,26 +190,26 @@ class EC2Service(AWSServices, metaclass=Singleton):
             host = instanceData.name
             region = instanceData.region
         except Exception:
-            host = "not found"
-            region = "not found"
+            host = instance
+            region = "unknown region"
 
-        full_details = f"Host: {host}, region: {region}. {extra_info}"
+        full_details = f"Instance: {instance}, region: {region}. {extra_info}"
 
         script_path = os.path.join(settings.BASE_DIR, "scripts", "call-for-help.sh")
 
         try:
             logger.info(f"Calling for help regarding {instance} because ({details})")
-            subprocess.run([script_path, instance, details, full_details], check=True)
-            logger.debug(f"running {script_path} {instance} {details} {full_details} succeeded")
+            subprocess.run([script_path, host, details, full_details], check=True)
+            logger.debug(f"running {script_path} {host} {details} {full_details} succeeded")
         except subprocess.CalledProcessError as e:
-            logger.error(f"running {script_path} {instance} {details} {full_details} returned: {e.returncode} ({e.output})")
+            logger.error(f"running {script_path} {host} {details} {full_details} returned: {e.returncode} ({e.output})")
             raise Exception("Call for help failed")
         except Exception as e:
             if hasattr(e, 'message'):
                 message = e.message
             else:
                 message = e
-            logger.error(f"running {script_path} {instance} {details} {full_details} returned generic error: {message}")
+            logger.error(f"running {script_path} {host} {details} {full_details} returned generic error: {message}")
             raise Exception("Call for help failed")
 
     def get_instances(self, extra_filters=None, update_sync_time=True, force_cluster_id=None):
