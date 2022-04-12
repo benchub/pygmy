@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# A hook for Pygmy to call when it has chosen an instance type for downsizing.
+# This script is an opportunity to apply site-specific prognostication skills
+# to override pygmy's choice with something that might work out better.
+
+# For example, if pygmy would normally take your database down to do a c6g.large,
+# but this script determines that there is a pg_repack job scheduled to run tonight
+# on a 100GB table, there is a good chance that replication will quickly start to lag.
+# Of course, pygmy has taken care of clients (they will be routed to the primary and
+# see none of that lag) but if there is a failover event during that period of high
+# lag, you might consider that to be unacceptable, and would rather spend more money
+# to reduce the lag. This script could choose to override pygmy's choice of a c6g.large
+# with a c6g.4xlarge, which has a signficantly higher ebs and network baseline.
+
+# If this doesn't make sense for your environment, simply return pygmy's proposed size.
+
+IFS=- read -r project environment cluster <<< "${1,,}"
+proposed_size="$2"
+
+final_size="${proposed_size}"
+
+# In our experience, a c6g.2xlarge can keep up with pg_repack churning over this many bytes
+# before lag becomes an issue
+threshold=100000000000
+
+# Image a database that could predict what pg_repack jobs are scheduled
+found="$(psql -h repack-db.insops.net -d repack -XtAc "select sum from (select sum(starting_size) from jobs_expanded where finished_at is null and project='${project}' and environment='${environment}' and cluster='${cluster}') as foo where sum > ${threshold}")"
+
+if [[ -n "${found}" ]]
+then
+  case "${proposed_size}" in
+    "c6g.large") final_size="c6g.4xlarge"    ;;
+    "c6g.xlarge") final_size="c6g.4xlarge"   ;;
+    "c6g.2xlarge") final_size="c6g.4xlarge"  ;;
+    "m6g.large") final_size="m6g.4xlarge"    ;;
+    "m6g.xlarge") final_size="m6g.4xlarge"   ;;
+    "m6g.2xlarge") final_size="m6g.4xlarge"  ;;
+    "r6g.large") final_size="r6g.4xlarge"    ;;
+    "r6g.xlarge") final_size="r6g.4xlarge"   ;;
+    "r6g.2xlarge") final_size="r6g.4xlarge"  ;;
+  esac
+fi
+
+echo "${final_size}"
+
+exit 0

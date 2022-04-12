@@ -273,7 +273,7 @@ class RuleHelper:
                             # so that we can get load off of our replica(s) before resizing.
                             self.update_dns_entries(db_instances[id])
                             self.run_pre_resize_script(db_instances[id].instance.instanceId)
-                            if db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances):
+                            if db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances, self.cluster.name):
                                 aggregated_avg_load += replica_avg_load
                             else:
                                 logger.warning(f"Instance {db_instances[id].instance.instanceId} couldn't resize for downscaling")
@@ -291,7 +291,7 @@ class RuleHelper:
                             # so that we can make sure the upsized instance is ready to rock before it
                             # sees any new clients.
                             self.run_pre_resize_script(db_instances[id].instance.instanceId)
-                            if db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances):
+                            if db_instances[id].update_instance_type(actual_new_instance_type, self.rule.id, self.fallback_instances, None):
                                 # We need to make sure streaming has resumed before we say we are ready for clients
                                 db_instances[id].wait_till_replica_streaming()
 
@@ -319,7 +319,7 @@ class RuleHelper:
                 for id, helper in db_instances.items():
                     helper.check_average_load(self.rule_json, self.any_conditions)
                     helper.check_connections(self.rule_json, self.any_conditions)
-                    if helper.update_instance_type(self.new_instance_type, self.rule.id, self.fallback_instances):
+                    if helper.update_instance_type(self.new_instance_type, self.rule.id, self.fallback_instances, None):
                         self.update_dns_entries(helper)
                     else:
                         logger.warning(f"Not updating DNS for {helper.instance.instanceId} because resize failed")
@@ -339,7 +339,7 @@ class RuleHelper:
             for db in self.secondary_dbs:
                 db_helper = DbHelper(db)
                 db_helper.check_connections(self.rule_json, self.any_conditions)
-                if db_helper.update_instance_type(db.last_instance_type, self.rule.id, self.fallback_instances):
+                if db_helper.update_instance_type(db.last_instance_type, self.rule.id, self.fallback_instances, None):
                     self.update_dns_entries(db_helper)
                 else:
                     logger.warning(f"Not updating DNS for {db_helper.instance.instanceId} because resize failed")

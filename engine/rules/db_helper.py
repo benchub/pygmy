@@ -134,7 +134,7 @@ class DbHelper:
     def count_user_connections(self, users):
         return self.db_conn().count_specific_active_connections(users)
 
-    def update_instance_type(self, instance_type, rule_id, fallback_instances=[]):
+    def update_instance_type(self, instance_type, rule_id, fallback_instances=[], cluster_name_to_prognosticate=None):
         if instance_type == self.instance.instanceType:
             logger.info(f"Not going to change instance type because {self.instance.instanceType} == {instance_type}")
             # even though we didn't actually make a change, we're in the same state as if we had, so return True
@@ -145,7 +145,7 @@ class DbHelper:
         # Mark our intent to resize an cluster member
         CronUtil.create_cron_intent(rule_id, self.instance.instanceId)
 
-        if self.aws.scale_instance(self.instance, instance_type, fallback_instances):
+        if self.aws.scale_instance(self.instance, instance_type, fallback_instances, cluster_name_to_prognosticate):
             # Remove our intent, now that it is over.
             # (The rule might still be in progress, but if we were to restart at this moment it should be close enough to idempotent.)
             CronUtil.delete_cron_intent(rule_id)

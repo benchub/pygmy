@@ -109,10 +109,12 @@ Load instance data
 $ python manage.py get_all_db_data
 ```
 
-Make DNS, pre-resize, and post-streaming scripts at `scripts/{dns-change,pre-resize,post-streaming}.sh`
+Make DNS, pre-resize, post-streaming, call-for-help, and downsize-prognostication scripts at `scripts/{dns-change,pre-resize,post-streaming,call-for-help,downsize-prognostication}.sh`
 - `dns-change.sh` will be used to modify DNS before and after resize.
 - `pre-resize.sh` will be called before a replica is resized. You might use this to gag your monitoring or give your auto-failover logic a xanax.
 - `post-streaming.sh` will be called after a replica has been resized *and* has resumed streaming replication. You might use this to undo the effects of `pre-resize.sh`.
+- `call-for-help.sh` will be used in case pygmy poops the bed and an operator needs to clean up after it.
+- `downsize-prognostication.sh` will be used to apply any site-specific knowledge around pygmy's plan, allowing for you to override pygmy's scheduled action if it would be unlikely to work out.
 
 For each of these scripts,
 - Copy one of the existing example scripts in scripts
