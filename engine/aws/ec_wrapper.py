@@ -123,7 +123,7 @@ class EC2Service(AWSServices, metaclass=Singleton):
        """
         if cluster_name_to_prognosticate is not None:
             # See if our proposed instance type matches our prognostication
-            new_instance_type = self.prognosticate(cluster_name_to_prognosticate, proposed_instance_type)
+            new_instance_type = self.prognosticate(cluster_name_to_prognosticate, proposed_instance_type).decode().rstrip()
         else:
             # If we don't have a cluster name to prognosticate, just take what we're given.
             new_instance_type = proposed_instance_type
