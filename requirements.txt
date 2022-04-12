@@ -14,3 +14,5 @@ djangorestframework-datatables==0.6.0
 django-filter==21.1
 uwsgi==2.0.20
 django-pglocks
+setuptools==57.5.0
+ConcurrentLogHandler==0.9.1

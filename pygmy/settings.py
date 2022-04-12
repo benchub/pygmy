@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 
 import os
 import sys
+import cloghandler
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -230,7 +231,7 @@ LOGGING = {
             'formatter': 'simple',
         },
         'pygmyLogs': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'cloghandler.ConcurrentRotatingFileHandler',
             'maxBytes': 1024 * 1024 * 50,  # 50 MB
             'backupCount': 5,
             'formatter': 'simple',
