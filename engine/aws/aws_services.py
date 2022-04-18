@@ -39,15 +39,15 @@ class AWSServices:
                 logger.error("Failed to create AWS Session using DB Credentials")
                 raise e
         # We're going to want to be a bit more resiliant to AWS errors
-        config = Config(retries={'max_attempts': 7, 'mode': 'standard'})
+        config = Config(retries={'max_attempts': 13, 'mode': 'standard'})
         self.ec2_client = self.aws_session.client('ec2', region_name=settings.DEFAULT_REGION, config=config)
         self.rds_client = self.aws_session.client('rds', region_name=settings.DEFAULT_REGION, config=config)
         for region in self.ec2_client.describe_regions()["Regions"]:
             region_name = region["RegionName"]
-            self.ec2_client_region_dict[region_name] = self.aws_session.client('ec2', region_name=region_name)
-            self.rds_client_region_dict[region_name] = self.aws_session.client('rds', region_name=region_name)
+            self.ec2_client_region_dict[region_name] = self.aws_session.client('ec2', region_name=region_name, config=config)
+            self.rds_client_region_dict[region_name] = self.aws_session.client('rds', region_name=region_name, config=config)
             self.cloudwatch_client_region_dict[region_name] = self.aws_session.client('cloudwatch',
-                                                                                      region_name=region_name)
+                                                                                      region_name=region_name, config=config)
 
     @staticmethod
     def get_enabled_regions():
