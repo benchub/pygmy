@@ -96,7 +96,7 @@ class PostgresData:
         try:
             result = self.execute_and_return_data(query, expect_errors)[0][0]
             return (str(result) == "1")
-        except psycopg2.InterfaceError:
+        except psycopg2.InterfaceError as e:
             logger.info(f"Replica not accepting connections: {e}")
             return False
         except Exception as e:
