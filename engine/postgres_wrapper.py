@@ -16,6 +16,7 @@ class PostgresData:
                 # Assume libpq will do the needful to find a working username and password, such as with pgpass
                 self.conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, port=DB_PORT)
             self.cursor = self.conn.cursor()
+            self.conn.set_session(autocommit=True)
         except Exception as e:
             if expect_errors is False:
                 logger.error("ERROR: Cannot connect to the postgres db!")
